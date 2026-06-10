@@ -1,8 +1,7 @@
 name: release
 
 on:
-  push:
-    branches: [ 0.10.2, 0.11.2, 0.11.3 ]
+  workflow_dispatch:
 
 jobs:
   build-base:
@@ -78,7 +77,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Upload central staging (base)
-        if: steps.detect.outputs.is_release == 'true'
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: central-staging-base
@@ -105,14 +104,16 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+    strategy:
+      fail-fast: false
   bundle:
     needs: build-base
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-        arch: [ x64 ]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        arch: [x64]
         include:
           - task: create-targz
             os: ubuntu-latest
@@ -259,8 +260,8 @@ jobs:
   # deployment then needs to be validated and published manually via the UI at
   # https://central.sonatype.com/publishing/deployments.
   publish-central:
-    needs: [ build-base, bundle ]
-    if: needs.build-base.outputs.is_release == 'true'
+    needs: [build-base, bundle]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Download all central staging artifacts
@@ -372,6 +373,8 @@ jobs:
             echo "Validate it and click **Publish** at <https://central.sonatype.com/publishing/deployments>."
           } >> "$GITHUB_STEP_SUMMARY"
 
+    strategy:
+      fail-fast: false
   update-site:
     # In snapshot mode bundle directly publishes binaries, so update-site can
     # run right after. In release mode wait for publish-central to succeed so
@@ -379,12 +382,9 @@ jobs:
     # by Central. The bundle still needs to be manually published in the UI to
     # actually become live, so the autoupdate site may briefly point to
     # not-yet-published files until that step is completed.
-    needs: [ build-base, bundle, publish-central ]
-    if: |
-      always() &&
-      needs.build-base.result == 'success' &&
-      needs.bundle.result == 'success' &&
-      (needs.publish-central.result == 'success' || needs.publish-central.result == 'skipped')
+    needs: [build-base, bundle, publish-central]
+    if: |-
+      always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -410,3 +410,5 @@ jobs:
         working-directory: modules/application
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
